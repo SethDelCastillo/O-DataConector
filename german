@@ -1,0 +1,67 @@
+import requests
+import pandas as pd
+from requests.auth import HTTPBasicAuth
+from sqlalchemy import create_engine, String, Boolean, Integer, Float
+# OData URL and credentials
+odata_url = "https://data-connector.geotab.com/odata/v4/svc/$metadata"  # Replace with your OData entity
+username = "iotdidcom/german.villalobos@didcom.com.mx"
+password = "Gervilla2023!"
+
+# Create a session with HTTP basic authentication
+session = requests.Session()
+session.auth = HTTPBasicAuth(username, password)
+
+#conection to SQL Server
+driver = 'SQL SERVER'
+server = 'DESKTOP-EIVHN1B'
+database = 'MyDB'
+
+# Create the SQLAlchemy connection string with Trusted Connection (Windows authentication)
+connection_string = f"mssql+pyodbc://{server}/{database}?driver=ODBC+Driver+17+for+SQL+Server"
+engine = create_engine(connection_string)
+
+meta_data_response = session.get(odata_url)
+
+if meta_data_response.status_code == 200:
+    
+    # Data retrieval was successful
+    meta_data = meta_data_response.text
+    table_names = ["DeviceGroups", "FleetSafety_Daily", "VehicleKpi_Daily", "LatestVehicleMetadata", "VehicleKpi_Monthly", "VehicleSafety_Daily", "VehicleKpi_Hourly"]
+    
+    meta_data = meta_data_response.text
+    for table_name in table_names:
+        table_url = f"https://odata-connector-2.geotab.com/odata/v4/svc/{table_name}"
+        response = session.get(table_url)
+       
+        if response.status_code == 200:
+            odata_data = response.json()
+            df = pd.DataFrame(odata_data['value'])
+            
+            print(f"Data from {table_name}:")
+            print(df.head())
+            print(df.dtypes)
+
+            if not df.empty:
+
+                dtype_mapping = {
+                    'bool' : Boolean,
+                    'int64' : Integer,
+                    'object' : String,
+                    'float64' : Float
+
+                }
+                column_dtypes = {col: dtype_mapping.get(str(df[col].dtype), String) for col in df.columns}
+
+                df.to_sql(name=table_name, con=engine, if_exists='replace', index=False, dtype=column_dtypes)
+                df.to_sql(name=table_name, con=engine, if_exists='append', index=False)
+                engine.dispose()
+
+
+                print(f"Table '{table_name}' has been created in SQL Server using Windows authentication.")
+
+        else : 
+            print("error")
+                
+           
+else:
+    print(f"Error: {meta_data_response.status_code}")
